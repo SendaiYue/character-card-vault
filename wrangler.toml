@@ -16,5 +16,5 @@ SITE_TITLE = "企鹅角色卡仓库 | 首页"
 # ACCESS_PASSWORD / TG_BOT_TOKEN / TG_CHAT_ID
 
 [[kv_namespaces]]
-binding = "CARDS_KV"
+binding = "card"
 id = "4c988004e3b941b2bf780cba8b8dd078"
