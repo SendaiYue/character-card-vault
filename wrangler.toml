@@ -5,8 +5,8 @@ pages_build_output_dir = "./public"
 
 [vars]
 # 站点自定义变量（非敏感，直接改这里，提交后自动部署生效；删除某行则恢复代码默认值）
-SITE_NAME = "企鹅的角色卡仓库"
-SITE_TITLE = "企鹅角色卡仓库 | 首页"
+SITE_NAME = "叶月的角色卡仓库"
+SITE_TITLE = "叶月角色卡仓库 | 首页"
 # SITE_BACKGROUND = "https://example.com/bg.jpg"   # 背景图 URL，不需要就保持注释
 # PRESET_CREATOR = "西维纳尔"                       # 详情页一键作者按钮，空值隐藏
 # PRESET_TAGS = "已发布,NSFW,SFW"                    # 详情页一键标签（逗号分隔可多个），空值隐藏
