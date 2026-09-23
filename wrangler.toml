@@ -16,5 +16,5 @@ SITE_TITLE = "叶月角色卡仓库 | 首页"
 # ACCESS_PASSWORD / TG_BOT_TOKEN / TG_CHAT_ID
 
 [[kv_namespaces]]
-binding = "card"
+binding = "CARDS_KV"
 id = "4c988004e3b941b2bf780cba8b8dd078"
