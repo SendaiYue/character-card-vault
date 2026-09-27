@@ -1,21 +1,20 @@
 // POST /api/export/batch - 批量导出
 
 import { downloadFromTelegram } from '../../utils/telegram.js';
+import { assetKey, isAssetType, json } from '../../utils/storage.js';
 
 export async function onRequestPost(context) {
     try {
         const body = await context.request.json();
-        const { cardIds } = body;
+        const { cardIds = [], assetRefs = [] } = body;
 
-        if (!cardIds || !Array.isArray(cardIds) || cardIds.length === 0) {
-            return new Response(JSON.stringify({ ok: false, error: '请选择要导出的角色卡' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' }
-            });
+        if (!Array.isArray(cardIds) || !Array.isArray(assetRefs) || cardIds.length + assetRefs.length === 0 ||
+            assetRefs.some(ref => !ref || !isAssetType(ref.type) || typeof ref.id !== 'string')) {
+            return json({ ok: false, error: '请选择要导出的内容' }, 400);
         }
 
         // 导出会逐张从 Telegram 下载文件内嵌进 JSON，量大易超 Workers CPU 限制
-        if (cardIds.length > 20) {
+        if (cardIds.length + assetRefs.length > 20) {
             return new Response(JSON.stringify({ ok: false, error: '一次最多导出 20 张（备份含卡文件）。如需备份全部元数据，请使用「全量备份」' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' }
@@ -25,9 +24,10 @@ export async function onRequestPost(context) {
         const tgBotToken = context.env.TG_BOT_TOKEN;
 
         const exportData = {
-            version: '1.0',
+            version: '2.0',
             exportDate: new Date().toISOString(),
-            cards: []
+            cards: [],
+            assets: []
         };
 
         for (const id of cardIds) {
@@ -48,11 +48,26 @@ export async function onRequestPost(context) {
                     }
                 }
 
+                if (!fileData) return json({ ok: false, error: `无法导出文件: ${card.name}` }, 502);
+
                 exportData.cards.push({
                     ...card,
                     fileData
                 });
             }
+        }
+
+        for (const ref of assetRefs) {
+            const asset = await context.env.CARDS_KV.get(assetKey(ref.type, ref.id), { type: 'json' });
+            if (!asset) continue;
+            let fileData = null;
+            if (asset.telegramFileId && tgBotToken) {
+                const response = await downloadFromTelegram(tgBotToken, asset.telegramFileId);
+                if (!response.ok) return json({ ok: false, error: `无法导出文件: ${asset.name}` }, 502);
+                fileData = Array.from(new Uint8Array(await response.arrayBuffer()));
+            }
+            if (!fileData) return json({ ok: false, error: `无法导出文件: ${asset.name}` }, 502);
+            exportData.assets.push({ ...asset, fileData });
         }
 
         return new Response(JSON.stringify({ ok: true, data: exportData }), {

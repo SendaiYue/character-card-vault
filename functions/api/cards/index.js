@@ -2,6 +2,7 @@
 // POST /api/cards - 上传角色卡
 
 import { uploadToTelegram } from '../../utils/telegram.js';
+import { listRecords } from '../../utils/storage.js';
 
 // 规范化标签：兼容字符串（中英文逗号分隔）与数组、数组元素内含逗号的情况
 export function normalizeTags(tags) {
@@ -84,13 +85,7 @@ export async function onRequestGet(context) {
         const q = url.searchParams.get('q');
         const scope = url.searchParams.get('scope') || 'all';
 
-        const listResult = await context.env.CARDS_KV.list({ prefix: 'card:' });
-        let cards = [];
-
-        for (const key of listResult.keys) {
-            const card = await context.env.CARDS_KV.get(key.name, { type: 'json' });
-            if (card) cards.push(card);
-        }
+        let cards = await listRecords(context.env.CARDS_KV, 'card:');
 
         if (tag) {
             cards = cards.filter(c => (c.tags && c.tags.includes(tag)) || (c.userTags && c.userTags.includes(tag)));

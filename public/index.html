@@ -8,6 +8,19 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
+        .library-tabs { display:flex; gap:8px; flex-wrap:nowrap; overflow-x:auto; max-width:1400px; margin:18px auto 0; padding:0 20px; }
+        .library-tab { flex:0 0 auto; width:auto!important; padding:9px 16px; }
+        .library-tab.active { background:var(--accent); color:var(--bg-deep); }
+        .asset-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:16px; }
+        .asset-tile { min-height:160px; padding:18px; cursor:pointer; border-radius:12px; background:var(--bg-card); border:1px solid var(--border); }
+        .asset-tile:hover { border-color:var(--accent); }
+        .asset-tile h3 { margin:8px 0; overflow-wrap:anywhere; }
+        .asset-tile p { color:var(--text-secondary); overflow-wrap:anywhere; }
+        .asset-kind { font-size:30px; }
+        .link-list { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+        .link-pill { padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); color:var(--text-primary); cursor:pointer; }
+        .picker-list { max-height:55vh; overflow:auto; display:grid; gap:8px; }
+        .picker-item { display:flex; gap:10px; align-items:center; padding:8px; border:1px solid var(--border); border-radius:8px; }
         :root {
             /* 深空黑底 + 琥珀金；color-scheme 让原生下拉/滚动条按深色渲染 */
             color-scheme: dark;
@@ -991,6 +1004,13 @@
             </div>
         </nav>
 
+        <div class="library-tabs" id="libraryTabs">
+            <button class="btn btn-secondary library-tab active" data-type="cards">角色卡</button>
+            <button class="btn btn-secondary library-tab" data-type="worldbook">世界书</button>
+            <button class="btn btn-secondary library-tab" data-type="preset">预设</button>
+            <button class="btn btn-secondary library-tab" data-type="script">脚本</button>
+        </div>
+
         <!-- 工具栏 -->
         <div class="toolbar">
             <div class="toolbar-left">
@@ -1043,6 +1063,33 @@
                 <div class="loading-spinner"></div>
             </div>
             <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <div class="modal" id="linkPickerModal">
+        <div class="modal-content">
+            <h2 class="modal-title" id="linkPickerTitle">选择关联</h2>
+            <div class="picker-list" id="linkPickerList"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="linkPickerCancel">取消</button>
+                <button class="btn" id="linkPickerSave">保存关联</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="assetEditModal">
+        <div class="modal-content">
+            <h2 class="modal-title">编辑资料信息</h2>
+            <label class="input-label" for="assetEditName">展示名称</label>
+            <input class="input-field" id="assetEditName" maxlength="200">
+            <label class="input-label" for="assetEditDescription" style="margin-top:14px;">简介</label>
+            <textarea class="input-field" id="assetEditDescription" rows="5" style="resize:vertical;"></textarea>
+            <label class="input-label" for="assetEditTags" style="margin-top:14px;">标签（逗号分隔）</label>
+            <input class="input-field" id="assetEditTags">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="assetEditCancel">取消</button>
+                <button class="btn" id="assetEditSave">保存</button>
+            </div>
         </div>
     </div>
 
@@ -1147,6 +1194,7 @@
         // 应用状态
         const state = {
             token: localStorage.getItem('token'),
+            activeType: 'cards',
             cards: [],
             tags: [],
             currentPage: 1,
@@ -1164,6 +1212,9 @@
 
         // 当前查看详情的角色卡
         let currentCard = null;
+        let currentAsset = null;
+        const ASSET_LABELS = { worldbook: '世界书', preset: '预设', script: '脚本' };
+        const ASSET_ICONS = { worldbook: '🌍', preset: '⚙️', script: '📜' };
 
         // API 基础 URL
         const API_BASE = '/api';
@@ -1287,6 +1338,7 @@
         // 从 URL 恢复筛选状态（刷新/分享链接保留）
         (function restoreFiltersFromUrl() {
             const params = new URLSearchParams(location.search);
+            if (ASSET_LABELS[params.get('type')]) state.activeType = params.get('type');
             if (params.get('q')) {
                 state.searchQuery = params.get('q');
                 document.getElementById('searchInput').value = state.searchQuery;
@@ -1426,22 +1478,50 @@
         function showApp() {
             document.getElementById('loginPage').style.display = 'none';
             document.getElementById('app').classList.add('active');
+            updateLibraryUI();
             loadCards();
             loadTags();
         }
 
+        function updateLibraryUI() {
+            const assetMode = state.activeType !== 'cards';
+            document.querySelectorAll('.library-tab').forEach(b => b.classList.toggle('active', b.dataset.type === state.activeType));
+            document.getElementById('searchInput').placeholder = assetMode ? `搜索${ASSET_LABELS[state.activeType]}...` : '搜索角色卡...';
+            document.getElementById('searchScope').style.display = assetMode ? 'none' : '';
+            document.querySelector('.view-toggle').style.display = assetMode ? 'none' : '';
+            document.querySelector('#uploadModal .modal-title').textContent = `导入${assetMode ? ASSET_LABELS[state.activeType] : '角色卡'}`;
+            document.getElementById('fileInput').accept = assetMode ? '.json,.txt,.js,.yaml,.yml,.zip' : '.png,.json';
+        }
+
+        document.querySelectorAll('.library-tab').forEach(button => button.addEventListener('click', () => {
+            if (state.activeType === button.dataset.type) return;
+            state.activeType = button.dataset.type;
+            state.selectedTag = null;
+            state.searchQuery = '';
+            state.favoritesOnly = false;
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchClear').classList.remove('visible');
+            document.getElementById('favoriteFilter').checked = false;
+            toggleBatchMode(false);
+            updateLibraryUI();
+            loadCards();
+            loadTags();
+        }));
+
         // 加载角色卡
         async function loadCards(page = 1) {
             try {
+                const requestedType = state.activeType;
                 const params = new URLSearchParams({
                     page: page.toString(),
                     limit: String(settings.pageSize || 30),
                     sort: state.sortBy
                 });
 
+                if (state.activeType !== 'cards') params.set('type', state.activeType);
                 if (state.searchQuery) {
                     params.append('q', state.searchQuery);
-                    params.append('scope', state.searchScope);
+                    if (state.activeType === 'cards') params.append('scope', state.searchScope);
                 }
                 if (state.selectedTag) params.append('tag', state.selectedTag);
                 if (state.favoritesOnly) params.append('favorite', 'true');
@@ -1450,7 +1530,8 @@
                 const qs = params.toString();
                 history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
 
-                const data = await api(`/cards?${params}`);
+                const data = await api(`/${state.activeType === 'cards' ? 'cards' : 'assets'}?${params}`);
+                if (requestedType !== state.activeType) return;
                 
                 state.cards = data.data;
                 state.currentPage = data.page;
@@ -1458,7 +1539,8 @@
                 
                 renderCards();
                 renderPagination();
-                document.getElementById('cardCount').textContent = `共 ${data.total} 张角色卡`;
+                document.getElementById('cardCount').textContent = state.activeType === 'cards'
+                    ? `共 ${data.total} 张角色卡` : `共 ${data.total} 个${ASSET_LABELS[state.activeType]}`;
             } catch (error) {
                 console.error('加载失败:', error);
                 const container = document.getElementById('cardsContainer');
@@ -1470,6 +1552,11 @@
         // 渲染角色卡
         function renderCards() {
             const container = document.getElementById('cardsContainer');
+
+            if (state.activeType !== 'cards') {
+                renderAssets();
+                return;
+            }
 
             if (state.cards.length === 0) {
                 container.className = '';
@@ -1540,6 +1627,25 @@
             loadThumbs(state.cards);
         }
 
+        function renderAssets() {
+            const container = document.getElementById('cardsContainer');
+            container.className = 'asset-grid';
+            container.innerHTML = state.cards.length ? state.cards.map(asset => `
+                <div class="asset-tile" data-id="${esc(asset.id)}">
+                    ${state.selectMode ? `<input type="checkbox" class="asset-check" data-id="${esc(asset.id)}" ${state.selectedIds.has(asset.id) ? 'checked' : ''}>` : ''}
+                    <div class="asset-kind">${ASSET_ICONS[asset.type]}</div>
+                    <h3>${esc(asset.name)} ${asset.favorited ? '★' : ''}</h3>
+                    <p>${esc(asset.description || asset.fileName)}</p>
+                    <div class="card-tags">${(asset.tags || []).slice(0, 4).map(tag => `<span class="card-tag card-tag-user">${esc(tag)}</span>`).join('')}</div>
+                </div>`).join('') : `<div class="empty-state"><p>没有找到匹配的${ASSET_LABELS[state.activeType]}</p></div>`;
+            container.querySelectorAll('.asset-tile').forEach(el => el.addEventListener('click', event => {
+                if (event.target.classList.contains('asset-check')) return;
+                if (state.selectMode) toggleSelect(el.dataset.id);
+                else showAssetDetail(state.activeType, el.dataset.id);
+            }));
+            container.querySelectorAll('.asset-check').forEach(el => el.addEventListener('change', () => toggleSelect(el.dataset.id)));
+        }
+
         // 多选切换
         function toggleSelect(id) {
             if (state.selectedIds.has(id)) {
@@ -1547,7 +1653,7 @@
             } else {
                 state.selectedIds.add(id);
             }
-            document.getElementById('batchCount').textContent = `已选 ${state.selectedIds.size} 张`;
+            document.getElementById('batchCount').textContent = `已选 ${state.selectedIds.size} 项`;
             renderCards();
         }
 
@@ -1556,7 +1662,7 @@
             state.selectMode = on;
             if (!on) state.selectedIds.clear();
             document.getElementById('batchBar').classList.toggle('active', on);
-            document.getElementById('batchCount').textContent = `已选 ${state.selectedIds.size} 张`;
+            document.getElementById('batchCount').textContent = `已选 ${state.selectedIds.size} 项`;
             renderCards();
         }
 
@@ -1597,7 +1703,9 @@
         // 加载标签
         async function loadTags() {
             try {
-                const data = await api('/tags');
+                const requestedType = state.activeType;
+                const data = await api(state.activeType === 'cards' ? '/tags' : `/assets/tags?type=${state.activeType}`);
+                if (requestedType !== state.activeType) return;
                 state.tags = data.data;
                 renderTags();
             } catch (error) {
@@ -1608,12 +1716,13 @@
         // 渲染标签
         function renderTags() {
             const container = document.getElementById('tagsCloud');
+            if (state.activeType !== 'cards') state.tagManage = false;
             container.innerHTML = state.tags.map(tag => `
                 <span class="tag ${!state.tagManage && state.selectedTag === tag ? 'active' : ''}" data-tag="${esc(tag)}">${esc(tag)}</span>
             `).join('') + (state.tagManage ? `
                 <span class="tag" id="tagAddBtn" style="border-style: dashed;">+ 新标签</span>
                 <span class="tag" id="tagManageExit">完成</span>
-            ` : '') + (state.tags.length && !state.tagManage ? `<span class="tag" id="tagManageBtn" style="border-style: dashed;">管理标签</span>` : '');
+            ` : '') + (state.activeType === 'cards' && state.tags.length && !state.tagManage ? `<span class="tag" id="tagManageBtn" style="border-style: dashed;">管理标签</span>` : '');
 
             container.querySelectorAll('.tag[data-tag]').forEach(el => {
                 el.addEventListener('click', () => {
@@ -1673,12 +1782,13 @@
                 const data = await api(`/cards/${id}`);
                 const card = data.data;
                 currentCard = card;
+                currentAsset = null;
                 
                 document.getElementById('detailContent').innerHTML = `
                     <div class="detail-header">
                         <img class="detail-image" data-card-id="${card.id}" src="${PLACEHOLDER}" alt="${esc(card.name)}" decoding="async">
                         <div class="detail-info">
-                            <h1 class="detail-title">${esc(card.name)}</h1>
+                            <h1 class="detail-title">${esc(card.name)} <button class="creator-edit" onclick="editCardName()" title="修改名称">✎</button></h1>
                             <p class="detail-creator">作者：${esc(card.creator || '未知')}<button class="creator-edit" onclick="editCreator()" title="编辑作者">✎</button>${siteConfig.presetCreator && card.creator !== siteConfig.presetCreator ? `<button class="creator-edit" onclick="setCreator(this)" data-name="${esc(siteConfig.presetCreator)}" title="一键设置作者">${esc(siteConfig.presetCreator)}</button>` : ''}</p>
                             <div class="card-tags" style="margin-bottom: 16px;">
                                 ${(card.tags || []).map(tag => `
@@ -1746,13 +1856,216 @@
                             <div class="detail-section-content">${esc(typeof card.world === 'string' ? card.world : JSON.stringify(card.world, null, 2))}</div>
                         </div>
                     ` : ''}
+                    <div class="detail-section">
+                        <h3 class="detail-section-title">关联文件 <button class="creator-edit" onclick="openAssetPickerForCard()">＋关联</button></h3>
+                        <div id="cardAssetLinks" class="link-list">加载中...</div>
+                    </div>
                 `;
 
                 document.getElementById('detailPage').classList.add('active');
                 loadThumbs([card]);
+                renderCardAssetLinks(card.id);
             } catch (error) {
                 alert('加载详情失败: ' + error.message);
             }
+        }
+
+        async function editCardName() {
+            if (!currentCard) return;
+            const name = prompt('修改角色卡名称：', currentCard.name);
+            if (name === null) return;
+            if (!name.trim()) return alert('名称不能为空');
+            try {
+                await api(`/cards/${currentCard.id}`, { method: 'PUT', body: { name: name.trim() } });
+                await showDetail(currentCard.id);
+                loadCards(state.currentPage);
+            } catch (error) { alert('修改失败: ' + error.message); }
+        }
+
+        async function fetchAllItems(endpoint) {
+            const items = [];
+            let page = 1;
+            while (true) {
+                const separator = endpoint.includes('?') ? '&' : '?';
+                const result = await api(`${endpoint}${separator}page=${page}&limit=100`);
+                items.push(...result.data);
+                if (items.length >= result.total || !result.data.length) break;
+                page++;
+            }
+            return items;
+        }
+
+        async function renderCardAssetLinks(cardId) {
+            try {
+                const data = await fetchAllItems(`/assets?cardId=${encodeURIComponent(cardId)}`);
+                const target = document.getElementById('cardAssetLinks');
+                if (!target || currentCard?.id !== cardId) return;
+                target.innerHTML = data.length ? data.map(asset => `
+                    <button class="link-pill" data-type="${esc(asset.type)}" data-id="${esc(asset.id)}">${ASSET_ICONS[asset.type]} ${esc(asset.name)}</button>
+                `).join('') : '暂无关联文件';
+                target.querySelectorAll('button').forEach(button => button.addEventListener('click', () => showAssetDetail(button.dataset.type, button.dataset.id)));
+            } catch (error) {
+                const target = document.getElementById('cardAssetLinks');
+                if (target) target.textContent = `加载失败: ${error.message}`;
+            }
+        }
+
+        async function showAssetDetail(type, id) {
+            try {
+                const asset = (await api(`/assets/${type}/${id}`)).data;
+                currentAsset = asset;
+                currentCard = null;
+                document.getElementById('detailContent').innerHTML = `
+                    <div class="detail-header"><div class="asset-kind" style="font-size:68px">${ASSET_ICONS[type]}</div>
+                        <div class="detail-info"><h1 class="detail-title">${esc(asset.name)} <button class="creator-edit" onclick="editAssetInfo()">✎</button></h1>
+                        <p>${ASSET_LABELS[type]} · ${esc(asset.fileName)} · ${formatSize(asset.fileSize)}</p>
+                        <div class="detail-actions">
+                            <button class="btn btn-secondary" onclick="toggleAssetFavorite()">${asset.favorited ? '★ 已收藏' : '☆ 收藏'}</button>
+                            <button class="btn btn-secondary" onclick="downloadAsset()">下载</button>
+                            <button class="btn btn-secondary" onclick="deleteAsset()">删除</button>
+                        </div></div></div>
+                    <div class="detail-section"><h3 class="detail-section-title">简介 <button class="creator-edit" onclick="editAssetInfo()">✎</button></h3>
+                        <div class="detail-section-content">${esc(asset.description || '暂无简介')}</div></div>
+                    <div class="detail-section"><h3 class="detail-section-title">标签 <button class="creator-edit" onclick="editAssetInfo()">✎</button></h3>
+                        <div class="card-tags">${(asset.tags || []).map(tag => `<span class="card-tag card-tag-user">${esc(tag)}</span>`).join('') || '暂无标签'}</div></div>
+                    <div class="detail-section"><h3 class="detail-section-title">关联角色卡 <button class="creator-edit" onclick="openCardPickerForAsset()">＋关联</button></h3>
+                        <div id="assetCardLinks" class="link-list">加载中...</div></div>`;
+                document.getElementById('detailPage').classList.add('active');
+                renderAssetCardLinks(asset);
+            } catch (error) { alert('加载详情失败: ' + error.message); }
+        }
+
+        function formatSize(bytes) {
+            return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+        }
+
+        async function renderAssetCardLinks(asset) {
+            try {
+                const cards = await fetchAllItems('/cards');
+                const linked = cards.filter(card => (asset.cardIds || []).includes(card.id));
+                const target = document.getElementById('assetCardLinks');
+                if (!target || currentAsset?.id !== asset.id) return;
+                target.innerHTML = linked.length ? linked.map(card => `<button class="link-pill" data-id="${esc(card.id)}">${esc(card.name)}</button>`).join('') : '暂无关联角色卡';
+                target.querySelectorAll('button').forEach(button => button.addEventListener('click', () => showDetail(button.dataset.id)));
+            } catch (error) {
+                const target = document.getElementById('assetCardLinks');
+                if (target) target.textContent = `加载失败: ${error.message}`;
+            }
+        }
+
+        function editAssetInfo() {
+            if (!currentAsset) return;
+            const asset = currentAsset;
+            document.getElementById('assetEditName').value = asset.name;
+            document.getElementById('assetEditDescription').value = asset.description || '';
+            document.getElementById('assetEditTags').value = (asset.tags || []).join(', ');
+            document.getElementById('assetEditModal').classList.add('active');
+        }
+
+        document.getElementById('assetEditCancel').addEventListener('click', () => {
+            document.getElementById('assetEditModal').classList.remove('active');
+        });
+        document.getElementById('assetEditSave').addEventListener('click', async () => {
+            if (!currentAsset) return;
+            const { type, id } = currentAsset;
+            const name = document.getElementById('assetEditName').value.trim();
+            if (!name) return alert('名称不能为空');
+            const description = document.getElementById('assetEditDescription').value;
+            const tags = document.getElementById('assetEditTags').value.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+            try {
+                await api(`/assets/${type}/${id}`, { method: 'PUT', body: { name, description, tags } });
+                document.getElementById('assetEditModal').classList.remove('active');
+                await showAssetDetail(type, id);
+                loadCards(state.currentPage);
+                loadTags();
+            } catch (error) { alert('保存失败: ' + error.message); }
+        });
+
+        async function toggleAssetFavorite() {
+            if (!currentAsset) return;
+            const { type, id, favorited } = currentAsset;
+            try {
+                await api(`/assets/${type}/${id}`, { method: 'PUT', body: { favorited: !favorited } });
+                showAssetDetail(type, id);
+                loadCards(state.currentPage);
+            } catch (error) { alert('操作失败: ' + error.message); }
+        }
+
+        function downloadAsset() {
+            if (!currentAsset) return;
+            authDownload(`${API_BASE}/assets/${currentAsset.type}/${currentAsset.id}/download`, currentAsset.fileName)
+                .catch(error => alert('下载失败: ' + error.message));
+        }
+
+        async function deleteAsset() {
+            if (!currentAsset || !confirm(`确定删除「${currentAsset.name}」吗？`)) return;
+            try {
+                await api(`/assets/${currentAsset.type}/${currentAsset.id}`, { method: 'DELETE' });
+                document.getElementById('detailPage').classList.remove('active');
+                currentAsset = null;
+                loadCards(state.currentPage);
+                loadTags();
+            } catch (error) { alert('删除失败: ' + error.message); }
+        }
+
+        let saveLinks = null;
+        document.getElementById('linkPickerCancel').addEventListener('click', () => {
+            document.getElementById('linkPickerModal').classList.remove('active');
+        });
+        document.getElementById('linkPickerSave').addEventListener('click', async () => {
+            if (!saveLinks) return;
+            const button = document.getElementById('linkPickerSave');
+            button.disabled = true;
+            try {
+                const ids = [...document.querySelectorAll('#linkPickerList input:checked')].map(input => input.value);
+                await saveLinks(ids);
+                document.getElementById('linkPickerModal').classList.remove('active');
+            } catch (error) { alert('保存关联失败: ' + error.message); }
+            finally { button.disabled = false; }
+        });
+
+        function showLinkPicker(title, items, selectedIds, onSave) {
+            document.getElementById('linkPickerTitle').textContent = title;
+            const selected = new Set(selectedIds);
+            document.getElementById('linkPickerList').innerHTML = items.length ? items.map(item => `
+                <label class="picker-item"><input type="checkbox" value="${esc(item.key)}" ${selected.has(item.key) ? 'checked' : ''}>
+                    <span>${esc(item.label)}</span></label>`).join('') : '<p>暂无可关联内容</p>';
+            saveLinks = onSave;
+            document.getElementById('linkPickerModal').classList.add('active');
+        }
+
+        async function openCardPickerForAsset() {
+            if (!currentAsset) return;
+            const asset = currentAsset;
+            try {
+                const cards = await fetchAllItems('/cards');
+                showLinkPicker('关联角色卡', cards.map(card => ({ key: card.id, label: card.name })), asset.cardIds || [], async ids => {
+                    await api(`/assets/${asset.type}/${asset.id}`, { method: 'PUT', body: { cardIds: ids } });
+                    await showAssetDetail(asset.type, asset.id);
+                });
+            } catch (error) { alert('加载角色卡失败: ' + error.message); }
+        }
+
+        async function openAssetPickerForCard() {
+            if (!currentCard) return;
+            const cardId = currentCard.id;
+            try {
+                const groups = await Promise.all(Object.keys(ASSET_LABELS).map(type => fetchAllItems(`/assets?type=${type}`)));
+                const assets = groups.flat();
+                showLinkPicker('关联文件', assets.map(asset => ({
+                    key: `${asset.type}:${asset.id}`, label: `${ASSET_LABELS[asset.type]} · ${asset.name}`
+                })), assets.filter(asset => (asset.cardIds || []).includes(cardId)).map(asset => `${asset.type}:${asset.id}`), async ids => {
+                    const chosen = new Set(ids);
+                    for (const asset of assets) {
+                        const key = `${asset.type}:${asset.id}`;
+                        const current = (asset.cardIds || []).includes(cardId);
+                        if (current === chosen.has(key)) continue;
+                        const cardIds = chosen.has(key) ? [...(asset.cardIds || []), cardId] : asset.cardIds.filter(id => id !== cardId);
+                        await api(`/assets/${asset.type}/${asset.id}`, { method: 'PUT', body: { cardIds } });
+                    }
+                    await renderCardAssetLinks(cardId);
+                });
+            } catch (error) { alert('加载文件失败: ' + error.message); }
         }
 
         // 编辑简介
@@ -1916,10 +2229,10 @@
         async function batchFavorite() {
             const ids = [...state.selectedIds];
             if (!ids.length) return alert('请先选择角色卡');
-            if (!confirm(`确定要收藏选中的 ${ids.length} 张角色卡吗？`)) return;
+            if (!confirm(`确定要收藏选中的 ${ids.length} 项吗？`)) return;
             for (const id of ids) {
                 try {
-                    await api(`/cards/${id}`, { method: 'PUT', body: { favorited: true } });
+                    await api(state.activeType === 'cards' ? `/cards/${id}` : `/assets/${state.activeType}/${id}`, { method: 'PUT', body: { favorited: true } });
                 } catch (error) {
                     console.error(`收藏失败 ${id}:`, error);
                 }
@@ -1932,10 +2245,10 @@
         async function batchUnfavorite() {
             const ids = [...state.selectedIds];
             if (!ids.length) return alert('请先选择角色卡');
-            if (!confirm(`确定要取消收藏选中的 ${ids.length} 张角色卡吗？`)) return;
+            if (!confirm(`确定要取消收藏选中的 ${ids.length} 项吗？`)) return;
             for (const id of ids) {
                 try {
-                    await api(`/cards/${id}`, { method: 'PUT', body: { favorited: false } });
+                    await api(state.activeType === 'cards' ? `/cards/${id}` : `/assets/${state.activeType}/${id}`, { method: 'PUT', body: { favorited: false } });
                 } catch (error) {
                     console.error(`取消收藏失败 ${id}:`, error);
                 }
@@ -1948,11 +2261,11 @@
         async function batchDelete() {
             const ids = [...state.selectedIds];
             if (!ids.length) return alert('请先选择角色卡');
-            if (!confirm(`确定要删除选中的 ${ids.length} 张角色卡吗？此操作不可恢复！`)) return;
+            if (!confirm(`确定要删除选中的 ${ids.length} 项吗？此操作不可恢复！`)) return;
             let ok = 0;
             for (const id of ids) {
                 try {
-                    await api(`/cards/${id}`, { method: 'DELETE' });
+                    await api(state.activeType === 'cards' ? `/cards/${id}` : `/assets/${state.activeType}/${id}`, { method: 'DELETE' });
                     ok++;
                 } catch (error) {
                     console.error(`删除失败 ${id}:`, error);
@@ -1961,6 +2274,7 @@
             alert(`删除完成: ${ok}/${ids.length}`);
             toggleBatchMode(false);
             loadCards();
+            loadTags();
         }
 
         async function batchExport() {
@@ -1970,13 +2284,15 @@
             try {
                 const data = await api('/export/batch', {
                     method: 'POST',
-                    body: { cardIds: ids }
+                    body: state.activeType === 'cards' ? { cardIds: ids } : {
+                        assetRefs: ids.map(id => ({ type: state.activeType, id }))
+                    }
                 });
                 const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `character-cards-batch-${Date.now()}.json`;
+                a.download = `vault-${state.activeType}-batch-${Date.now()}.json`;
                 a.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
             } catch (error) {
@@ -1996,7 +2312,7 @@
                     body: JSON.parse(text)
                 });
                 const r = data.data;
-                alert(`恢复完成：导入 ${r.importedCards} 张角色卡（跳过 ${r.skippedCards} 张）`);
+                alert(`恢复完成：角色卡 ${r.importedCards} 张（跳过 ${r.skippedCards} 张）；文件 ${r.importedAssets || 0} 个（跳过 ${r.skippedAssets || 0} 个）`);
                 loadCards();
                 loadTags();
             } catch (error) {
@@ -2105,7 +2421,9 @@
         function resetUploadModal() {
             selectedFiles = [];
             document.getElementById('fileInput').value = '';
-            document.getElementById('uploadZone').innerHTML = UPLOAD_ZONE_HTML;
+            document.getElementById('uploadZone').innerHTML = state.activeType === 'cards' ? UPLOAD_ZONE_HTML : `
+                <div class="upload-icon">📁</div><p class="upload-text">拖拽文件到此处，或点击选择</p>
+                <p class="upload-hint">支持 JSON、TXT、JS、YAML/YML、ZIP，单个最大 50MB</p>`;
             document.getElementById('progressBar').style.display = 'none';
             document.getElementById('uploadStatus').style.display = 'none';
             document.getElementById('progressFill').style.width = '0%';
@@ -2148,21 +2466,20 @@
         let selectedFiles = [];
 
         function handleFiles(files) {
-            selectedFiles = Array.from(files).filter(f =>
-                f.type === 'image/png' || f.name.endsWith('.json')
-            );
+            const extensions = state.activeType === 'cards' ? /\.(png|json)$/i : /\.(json|txt|js|yaml|yml|zip)$/i;
+            selectedFiles = Array.from(files).filter(f => extensions.test(f.name) && f.size <= 50 * 1024 * 1024);
 
             if (selectedFiles.length > 0) {
                 document.getElementById('confirmUpload').disabled = false;
                 document.getElementById('uploadZone').innerHTML = `
                     <div class="upload-icon">✅</div>
                     <p class="upload-text">已选择 ${selectedFiles.length} 个文件</p>
-                    <p class="upload-hint">${selectedFiles.map(f => f.name).join(', ')}</p>
+                    <p class="upload-hint">${selectedFiles.map(f => esc(f.name)).join(', ')}</p>
                 `;
             } else {
                 // 没有有效文件（如误选了其他格式）：恢复拖拽区并禁用确认，防止残留旧选择
                 selectedFiles = [];
-                document.getElementById('uploadZone').innerHTML = UPLOAD_ZONE_HTML;
+                resetUploadModal();
                 document.getElementById('confirmUpload').disabled = true;
             }
         }
@@ -2171,7 +2488,7 @@
         function uploadFile(formData, onProgress) {
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open('POST', `${API_BASE}/cards`);
+                xhr.open('POST', `${API_BASE}/${state.activeType === 'cards' ? 'cards' : 'assets'}`);
                 xhr.setRequestHeader('Authorization', `Bearer ${state.token}`);
                 xhr.timeout = 300000; // 大文件兜底，避免永久挂起
                 xhr.upload.onprogress = (e) => {
@@ -2213,6 +2530,7 @@
                 const file = files[i];
                 const formData = new FormData();
                 formData.append('file', file);
+                if (state.activeType !== 'cards') formData.append('type', state.activeType);
 
                 // 总进度 = 已完成张数 + 当前张的小数进度
                 const setProgress = (fileFrac) => {
@@ -2258,6 +2576,7 @@
             document.getElementById('uploadModal').classList.remove('active');
             document.getElementById('confirmUpload').disabled = false;
             loadCards();
+            loadTags();
         });
 
         // 全量备份

@@ -1,5 +1,6 @@
 // GET /api/tags - 标签列表
 // PUT /api/tags - 标签管理（action: add / rename / delete）
+import { listRecords } from '../../utils/storage.js';
 
 export async function onRequestGet(context) {
     try {
@@ -50,9 +51,8 @@ export async function onRequestPut(context) {
             await context.env.CARDS_KV.put('tags', JSON.stringify([...new Set(tags.map(t => t === tag ? newTag : t))]));
 
             // 同步重命名所有卡片上的标签（内置 + 自定义）
-            const listResult = await context.env.CARDS_KV.list({ prefix: 'card:' });
-            for (const key of listResult.keys) {
-                const card = await context.env.CARDS_KV.get(key.name, { type: 'json' });
+            const cards = await listRecords(context.env.CARDS_KV, 'card:');
+            for (const card of cards) {
                 if (card) {
                     let changed = false;
                     if (card.tags && card.tags.includes(tag)) {
@@ -63,7 +63,7 @@ export async function onRequestPut(context) {
                         card.userTags = card.userTags.map(t => t === tag ? newTag : t);
                         changed = true;
                     }
-                    if (changed) await context.env.CARDS_KV.put(key.name, JSON.stringify(card));
+                    if (changed) await context.env.CARDS_KV.put(`card:${card.id}`, JSON.stringify(card));
                 }
             }
 
@@ -78,9 +78,8 @@ export async function onRequestPut(context) {
             await context.env.CARDS_KV.put('tags', JSON.stringify(tags.filter(t => t !== tag)));
 
             // 从所有卡片中移除该标签（内置 + 自定义）
-            const listResult = await context.env.CARDS_KV.list({ prefix: 'card:' });
-            for (const key of listResult.keys) {
-                const card = await context.env.CARDS_KV.get(key.name, { type: 'json' });
+            const cards = await listRecords(context.env.CARDS_KV, 'card:');
+            for (const card of cards) {
                 if (card) {
                     let changed = false;
                     if (card.tags && card.tags.includes(tag)) {
@@ -91,7 +90,7 @@ export async function onRequestPut(context) {
                         card.userTags = card.userTags.filter(t => t !== tag);
                         changed = true;
                     }
-                    if (changed) await context.env.CARDS_KV.put(key.name, JSON.stringify(card));
+                    if (changed) await context.env.CARDS_KV.put(`card:${card.id}`, JSON.stringify(card));
                 }
             }
 

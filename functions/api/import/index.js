@@ -2,6 +2,7 @@
 
 import { uploadToTelegram } from '../../utils/telegram.js';
 import { normalizeTags } from '../cards/index.js';
+import { assetKey, isAssetType } from '../../utils/storage.js';
 
 export async function onRequestPost(context) {
     try {
@@ -19,9 +20,11 @@ export async function onRequestPost(context) {
         // 兼容全量备份文件（{ok, data:{...}} 包裹）和批量导出（{cards:[...]}）
         const payload = body.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : body;
         const cards = Array.isArray(payload.cards) ? payload.cards : [];
+        const assets = Array.isArray(payload.assets) ? payload.assets : [];
         const tags = Array.isArray(payload.tags) ? payload.tags : [];
 
         let importedCards = 0, skippedCards = 0;
+        let importedAssets = 0, skippedAssets = 0;
 
         for (const card of cards) {
             if (!card || !card.id) continue;
@@ -54,6 +57,34 @@ export async function onRequestPost(context) {
             importedCards++;
         }
 
+        for (const asset of assets) {
+            if (!asset || !isAssetType(asset.type) || typeof asset.id !== 'string') continue;
+            const key = assetKey(asset.type, asset.id);
+            if (await context.env.CARDS_KV.get(key)) {
+                skippedAssets++;
+                continue;
+            }
+            const index = { ...asset };
+            delete index.fileData;
+            index.tags = normalizeTags(asset.tags);
+            index.favorited = Boolean(asset.favorited);
+            // 保留尚未恢复的角色卡 ID，便于分批迁移时在卡片导入后自动重新关联。
+            index.cardIds = [...new Set((Array.isArray(asset.cardIds) ? asset.cardIds : [])
+                .filter(cardId => typeof cardId === 'string'))];
+            if (Array.isArray(asset.fileData) && asset.fileData.length > 0) {
+                const upload = await uploadToTelegram(
+                    tgBotToken, tgChatId,
+                    new File([new Uint8Array(asset.fileData)], asset.fileName || `${asset.name}.json`),
+                    `${asset.type}恢复: ${asset.name || ''}`
+                );
+                index.telegramFileId = upload.fileId;
+                index.telegramMessageId = upload.messageId;
+                index.fileName = upload.fileName;
+            }
+            await context.env.CARDS_KV.put(key, JSON.stringify(index));
+            importedAssets++;
+        }
+
         // 合并标签（含卡片自定义标签）
         if (tags.length > 0) {
             const existingTags = await context.env.CARDS_KV.get('tags', { type: 'json' }) || [];
@@ -67,7 +98,7 @@ export async function onRequestPost(context) {
 
         return new Response(JSON.stringify({
             ok: true,
-            data: { importedCards, skippedCards }
+            data: { importedCards, skippedCards, importedAssets, skippedAssets }
         }), {
             headers: { 'Content-Type': 'application/json' }
         });
